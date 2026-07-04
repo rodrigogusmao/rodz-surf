@@ -1,6 +1,8 @@
-local GuiTimer     = 0
-local hasSurfboard = false
-local currentPlate = nil
+local GuiTimer         = 0
+local hasSurfboard     = false
+local currentPlate     = nil
+local surfNpc          = nil
+local currentSurfboard = nil
 
 local function RentSurfboard()
     if hasSurfboard then
@@ -10,16 +12,24 @@ local function RentSurfboard()
 
     local c = Config.SpawnCoords
 
-    lib.requestModel('surfboard')
-    local vehicle = CreateVehicle(GetHashKey('surfboard'), c.x, c.y, c.z, c.w, true, false)
+    local surfHash = GetHashKey('surfboard')
+    RequestModel(surfHash)
+    local deadline = GetGameTimer() + 10000
+    while not HasModelLoaded(surfHash) do
+        if GetGameTimer() > deadline then break end
+        Wait(100)
+    end
+    local vehicle = CreateVehicle(surfHash, c.x, c.y, c.z, c.w, true, false)
     SetVehicleNumberPlateText(vehicle, ('SURF%04d'):format(math.random(1, 9999)))
-    SetModelAsNoLongerNeeded(GetHashKey('surfboard'))
+    SetEntityAsMissionEntity(vehicle, true, true)
+    SetModelAsNoLongerNeeded(surfHash)
 
     Wait(200)
     local plate = GetVehicleNumberPlateText(vehicle):gsub('%W', '')
 
-    hasSurfboard = true
-    currentPlate = plate
+    hasSurfboard     = true
+    currentPlate     = plate
+    currentSurfboard = vehicle
 
     Entity(vehicle).state:set('keysIn', true, true)
     SetVehicleEngineOn(vehicle, true, true, false)
@@ -54,6 +64,7 @@ CreateThread(function()
         return
     end
 
+    surfNpc = npc
     SetEntityInvincible(npc, true)
     SetBlockingOfNonTemporaryEvents(npc, true)
     FreezeEntityPosition(npc, true)
@@ -106,8 +117,17 @@ CreateThread(function()
             TaskLeaveVehicle(playerPed, vehicle, 0)
             Wait(1500)
             if DoesEntityExist(vehicle) then
+                if not NetworkHasControlOfEntity(vehicle) then
+                    NetworkRequestControlOfEntity(vehicle)
+                    local ctrl = 0
+                    while not NetworkHasControlOfEntity(vehicle) and ctrl < 300 do
+                        Wait(10)
+                        ctrl = ctrl + 10
+                    end
+                end
                 DeleteVehicle(vehicle)
             end
+            currentSurfboard = nil
             if currentPlate then
                 exports.mri_Qcarkeys:RemoveTempKeys(currentPlate)
                 currentPlate = nil
@@ -132,4 +152,18 @@ CreateThread(function()
     BeginTextCommandSetBlipName('STRING')
     AddTextComponentString('Surf Area')
     EndTextCommandSetBlipName(blip)
+end)
+
+-- Limpeza ao encerrar o resource
+AddEventHandler('onResourceStop', function(res)
+    if res ~= GetCurrentResourceName() then return end
+    if surfNpc and DoesEntityExist(surfNpc) then
+        exports.ox_target:removeLocalEntity(surfNpc)
+        DeleteEntity(surfNpc)
+    end
+    surfNpc = nil
+    if currentSurfboard and DoesEntityExist(currentSurfboard) then
+        DeleteEntity(currentSurfboard)
+    end
+    currentSurfboard = nil
 end)
